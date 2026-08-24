@@ -13,7 +13,8 @@ public class Worker(
 		var intervaloMinutos = _configuration.GetValue<int>("Sincronizacion:IntervaloMinutos");
 		var intervalo = TimeSpan.FromMinutes(intervaloMinutos);
 
-		_logger.LogInformation("Sincronizador configurado para ejecutarse cada {minutos} minutos", intervaloMinutos);
+		_logger.LogInformation(
+			"Sincronizador configurado para ejecutarse cada {minutos} minutos", intervaloMinutos);
 
 		while (!stoppingToken.IsCancellationRequested)
 		{
@@ -21,7 +22,7 @@ public class Worker(
 			{
 				_logger.LogInformation("Iniciando sincronización...");
 
-				await _databaseService.SincronizarAsync();
+				await _databaseService.SincronizarAsync(stoppingToken);
 
 				_logger.LogInformation("Sincronización terminada correctamente.");
 			}
