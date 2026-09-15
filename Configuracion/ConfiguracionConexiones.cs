@@ -1,0 +1,14 @@
+﻿namespace SincronizadorBD;
+
+public sealed class ConfiguracionConexiones(IConfiguration configuration)
+{
+    public string ObtenerOrigen() => ObtenerCadenaConexion("Origen");
+    public string ObtenerDestino() => ObtenerCadenaConexion("Destino");
+
+    private string ObtenerCadenaConexion(string nombreConexion)
+    {
+        return configuration.GetConnectionString(nombreConexion) ??
+            throw new InvalidOperationException(
+                $"No se encontró la cadena de conexion {nombreConexion}");
+    }
+}
