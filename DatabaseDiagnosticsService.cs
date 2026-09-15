@@ -52,8 +52,8 @@ public class DatabaseDiagnosticsService(
 
         logger.LogInformation(
             """
-                Conexión, lectura, permiso INSERT Y permiso EXECUTE verificados en Destino.
-                Servidor SQL: {Version}
+            Conexión, lectura, permiso INSERT Y permiso EXECUTE verificados en Destino.
+            Servidor SQL: {Version}
             """,
             connection.ServerVersion);
     }
@@ -71,9 +71,9 @@ public class DatabaseDiagnosticsService(
 
         logger.LogInformation(
             """
-                Conexión y lectura de SFP_TRAMITES verificadas en origen.
-                Servidor SQL: {Version}.
-                Folio actual: {UltimoFolio}.
+            Conexión y lectura de SFP_TRAMITES verificadas en origen.
+            Servidor SQL: {Version}.
+            Folio actual: {UltimoFolio}.
             """,
             connection.ServerVersion, ultimoFolio);
     }
@@ -84,7 +84,7 @@ public class DatabaseDiagnosticsService(
 
         logger.LogInformation(
             """
-                Estado local leído. Carga histórica terminada: {Terminada}.
+            Estado local leído. Carga histórica terminada: {Terminada}.
             """, estado.CargaHistoricaTerminada);
     }
 

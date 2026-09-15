@@ -122,6 +122,46 @@ public class RepositorioOrigenTramites(
         return tramites;
     }
 
+    public async Task<List<TramiteGobMx>> ObtenerTramites(CancellationToken cancellationToken)
+    {
+        var connectionString = configuracionConexiones.ObtenerOrigen();
+
+        const string sql = """
+            DECLARE @Inicio datetime;
+            DECLARE @Fin datetime;
+
+            SET @Inicio = DATEADD(day, DATEDIFF(day, 0, GETDATE()) - 3, 0);
+            SET @Fin = DATEADD(day, DATEDIFF(day, 0, GETDATE()) + 1, 0);
+
+            SELECT
+                folioSeguimiento, folioControlEstado, idTramite, fechaVencimiento, Fecha, Estatus,
+                OrigenJSON, importePagado, lineaCaptura, referenciaPago, fechaPago,
+                numeroautorizacion, codigoBarras, nombre
+            FROM dbo.SFP_TRAMITES
+            WHERE Fecha >= @Inicio
+                AND Fecha < @Fin
+            ORDER BY Fecha, folioSeguimiento, folioControlEstado;
+        """;
+
+        var tramites = new List<TramiteGobMx>();
+
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = new SqlCommand(sql, connection);
+        command.CommandTimeout = 30;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+            tramites.Add(CrearTramite(reader));
+
+        logger.LogInformation(
+            "Se leyeron {CantidadTramites} trámites de los últimos 4 días.", tramites.Count);
+
+        return tramites;
+    }
+
     private static TramiteGobMx CrearTramite(SqlDataReader reader)
     {
         return new TramiteGobMx
