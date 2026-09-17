@@ -53,11 +53,10 @@ try
             opciones => opciones.IntervaloMinutos > 0,
             "Sincronizacion:IntervaloMinutos debe ser mayor que cero.")
         .Validate(
-            opciones => opciones.TamanoLote > 0,
-            "Sincronizacion:TamanoLote debe ser mayor que cero.")
+            opciones => opciones.DiasAtrasConsulta >= 0,
+            "Sincronizacion:DiasAtrasConsulta no puede ser negativo.")
         .ValidateOnStart();
     builder.Services.AddSingleton<ConfiguracionConexiones>();
-    builder.Services.AddSingleton<EstadoSincronizacionService>();
     builder.Services.AddSingleton<RepositorioDestinoTramites>();
     builder.Services.AddSingleton<RepositorioOrigenTramites>();
     builder.Services.AddSingleton<SincronizadorTramitesService>();
@@ -74,7 +73,6 @@ try
 
         var diagnostico = hostDiagnostico.Services.GetRequiredService<DatabaseDiagnosticsService>();
 
-        await diagnostico.ProbarEstadoLocalAsync(CancellationToken.None);
         await diagnostico.ProbarOrigenAsync(CancellationToken.None);
         await diagnostico.ProbarDestinoAsync(CancellationToken.None);
 

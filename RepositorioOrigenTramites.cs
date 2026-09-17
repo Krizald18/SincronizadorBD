@@ -7,28 +7,26 @@ namespace SincronizadorBD;
 public class RepositorioOrigenTramites(
     ConfiguracionConexiones configuracionConexiones, ILogger<RepositorioOrigenTramites> logger)
 {
-    public async Task<List<TramiteGobMx>> ObtenerLoteHistoricoAsync(
-        string? ultimoFolioSeguimiento, string? ultimoFolioControlEstado, int tamanoLote,
-        CancellationToken cancellationToken)
+    public async Task<List<TramiteGobMx>> ObtenerTramites(
+        int diasAtrasConsulta,CancellationToken cancellationToken)
     {
         var connectionString = configuracionConexiones.ObtenerOrigen();
 
         const string sql = """
-            SELECT TOP (@TamanoLote)
+            DECLARE @Inicio datetime;
+            DECLARE @Fin datetime;
+
+            SET @Inicio = DATEADD(day, DATEDIFF(day, 0, GETDATE()) - @DiasAtrasConsulta, 0);
+            SET @Fin = DATEADD(day, DATEDIFF(day, 0, GETDATE()) + 1, 0);
+
+            SELECT
                 folioSeguimiento, folioControlEstado, idTramite, fechaVencimiento, Fecha, Estatus,
                 OrigenJSON, importePagado, lineaCaptura, referenciaPago, fechaPago,
                 numeroautorizacion, codigoBarras, nombre
             FROM dbo.SFP_TRAMITES
-            WHERE
-            (
-                @UltimoFolioSeguimiento IS NULL
-                OR folioSeguimiento > @UltimoFolioSeguimiento
-                OR (
-                    folioSeguimiento = @UltimoFolioSeguimiento
-                        AND folioControlEstado > @UltimoFolioControlEstado
-                )
-            )
-            ORDER BY folioSeguimiento, folioControlEstado;
+            WHERE Fecha >= @Inicio
+                AND Fecha < @Fin
+            ORDER BY Fecha, folioSeguimiento, folioControlEstado;
         """;
 
         var tramites = new List<TramiteGobMx>();
@@ -38,11 +36,7 @@ public class RepositorioOrigenTramites(
 
         await using var command = new SqlCommand(sql, connection);
         command.CommandTimeout = 30;
-        command.Parameters.Add("@TamanoLote", SqlDbType.Int).Value = tamanoLote;
-        command.Parameters.Add("@UltimoFolioSeguimiento", SqlDbType.VarChar, 50).Value =
-            (object?)ultimoFolioSeguimiento ?? DBNull.Value;
-        command.Parameters.Add("@UltimoFolioControlEstado", SqlDbType.Char, 10).Value =
-            (object?)ultimoFolioControlEstado ?? DBNull.Value;
+        command.Parameters.Add("@DiasAtrasConsulta", SqlDbType.Int).Value = diasAtrasConsulta;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
@@ -50,74 +44,8 @@ public class RepositorioOrigenTramites(
             tramites.Add(CrearTramite(reader));
 
         logger.LogInformation(
-            "Se leyeron {CantidadTramites} trámites del lote histórico.", tramites.Count);
-
-        return tramites;
-    }
-
-    public async Task<long> ObtenerFolioActualAsync(CancellationToken cancellationToken)
-    {
-        var connectionString = configuracionConexiones.ObtenerOrigen();
-
-        const string sql = """
-            SELECT MAX(Folio)
-            FROM dbo.SFP_FOLIOS;
-        """;
-
-        await using var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = new SqlCommand(sql, connection);
-        var resultado = await command.ExecuteScalarAsync(cancellationToken);
-
-        if (resultado is null || resultado == DBNull.Value)
-            throw new InvalidOperationException("SFP_Folios no devolvió el folio actual.");
-
-        return Convert.ToInt64(resultado);
-    }
-
-    public async Task<List<TramiteGobMx>> ObtenerLotePorFolioControlEstadoAsync(
-        long ultimoFolioControlEstado, long folioControlEstadoActual, int tamanoLote,
-        CancellationToken cancellationToken)
-    {
-        var connectionString = configuracionConexiones.ObtenerOrigen();
-
-        const string sql = """
-            SELECT TOP (@TamanoLote)
-                folioSeguimiento, folioControlEstado, idTramite, fechaVencimiento, Fecha, Estatus,
-                OrigenJSON, importePagado, lineaCaptura, referenciapago, fechaPago,
-                numeroautorizacion, codigoBarras, nombre
-            FROM dbo.SFP_TRAMITES
-            WHERE folioControlEstado > @UltimoFolioControlEstado
-                AND folioControlEstado <= @FolioControlEstadoActual
-            ORDER BY folioControlEstado;
-        """;
-
-        var tramites = new List<TramiteGobMx>();
-
-        await using var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = new SqlCommand(sql, connection);
-        command.CommandTimeout = 30;
-        command.Parameters.Add("@TamanoLote", SqlDbType.Int).Value = tamanoLote;
-        command.Parameters.Add("@UltimoFolioControlEstado", SqlDbType.Char, 10).Value =
-            ultimoFolioControlEstado.ToString("D10");
-        command.Parameters.Add("@FolioControlEstadoActual", SqlDbType.Char, 10).Value =
-            folioControlEstadoActual.ToString("D10");
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-
-        while (await reader.ReadAsync(cancellationToken))
-            tramites.Add(CrearTramite(reader));
-
-        logger.LogInformation(
-            """
-                Se leyeron {CantidadTramites} trámites por folioControlEstado.
-                Desde: {Desde}.
-                Hasta: {Hasta}.
-            """,
-            tramites.Count, ultimoFolioControlEstado, folioControlEstadoActual);
+            "Se leyeron {CantidadTramites} trámites de los últimos {DiasConsultados} días.",
+            tramites.Count, diasAtrasConsulta + 1);
 
         return tramites;
     }
@@ -151,5 +79,4 @@ public class RepositorioOrigenTramites(
 
     private static decimal? LeerImporte(SqlDataReader reader, int columna) =>
         reader.IsDBNull(columna) ? null : reader.GetDecimal(columna);
-
 }

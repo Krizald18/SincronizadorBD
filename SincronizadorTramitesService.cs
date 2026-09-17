@@ -6,7 +6,6 @@ namespace SincronizadorBD;
 public class SincronizadorTramitesService(
     RepositorioOrigenTramites repositorioOrigenTramites,
     RepositorioDestinoTramites repositorioDestinoTramites,
-    EstadoSincronizacionService estadoSincronizacionService,
     IOptions<OpcionesSincronizacion> opcionesSincronizacion,
     ILogger<SincronizadorTramitesService> logger)
 {
@@ -14,144 +13,56 @@ public class SincronizadorTramitesService(
 
     public async Task SincronizarAsync(CancellationToken cancellationToken)
     {
-        var tamanoLote = _opcionesSincronizacion.TamanoLote;
         var modoSimulacion = _opcionesSincronizacion.ModoSimulacion;
-        var estado = await estadoSincronizacionService.CargarAsync(cancellationToken);
 
         if (modoSimulacion)
         {
             logger.LogWarning(
-              "Modo simulación activo: no se insertarán datos ni se guardará avance.");
-
-            await ProcesarLoteHistoricoAsync(
-              estado, tamanoLote, modoSimulacion: true, cancellationToken);
-
-            return;
+              "Modo simulación activo: no se insertarán datos.");
         }
 
-        if (estado.UltimoFolioDescubierto == 0)
-        {
-            estado.UltimoFolioDescubierto =
-                await repositorioOrigenTramites.ObtenerFolioActualAsync(cancellationToken);
-
-            await estadoSincronizacionService.GuardarAsync(estado, cancellationToken);
-
-            logger.LogInformation(
-                """
-                    Marcador de detección continua inicializado.
-                    Folio actual: {FolioActual}.
-                """,
-                estado.UltimoFolioDescubierto);
-        }
-
-        await ProcesarLoteHistoricoAsync(
-          estado, tamanoLote, modoSimulacion: false, cancellationToken);
-        await ProcesarLoteContinuoAsync(estado, tamanoLote, cancellationToken);
-    }
-
-    private async Task ProcesarLoteHistoricoAsync(
-        EstadoSincronizacionLocal estado, int tamanoLote, bool modoSimulacion,
-        CancellationToken cancellationToken)
-    {
-        if (estado.CargaHistoricaTerminada) return;
-
-        var lote =
-            await repositorioOrigenTramites.ObtenerLoteHistoricoAsync(
-                estado.UltimoFolioSeguimientoHistorico, estado.UltimoFolioControlEstadoHistorico,
-                tamanoLote, cancellationToken);
-
-        if (lote.Count == 0)
-        {
-            if (!modoSimulacion)
-            {
-                estado.CargaHistoricaTerminada = true;
-                await estadoSincronizacionService.GuardarAsync(estado, cancellationToken);
-            }
-
-            logger.LogInformation("No quedan trámites en la carga histórica.");
-            return;
-        }
-
-        var resultado = await MigrarLoteAsync(lote, modoSimulacion, cancellationToken);
+        var diasAtrasConsulta = _opcionesSincronizacion.DiasAtrasConsulta;
+        var tramites =
+            await repositorioOrigenTramites.ObtenerTramites(diasAtrasConsulta, cancellationToken);
+        var resultado = await MigrarTramitesAsync(tramites, modoSimulacion, cancellationToken);
 
         if (modoSimulacion)
         {
             logger.LogInformation(
                 """
-                    Lote histórico simulado.
-                    Leídos: {Leidos}.
-                    Ya existentes: {Existentes}.
-                    Por insertar: {PorInsertar}.
+                Sincronización simulada de los últimos {DiasConsultados} días.
+                Leídos: {Leidos}.
+                Ya existentes: {Existentes}.
+                Por insertar: {PorInsertar}.
+                Conflictos omitidos: {Conflictos}.
                 """,
-                lote.Count, resultado.Existentes, resultado.PorInsertar);
+                diasAtrasConsulta + 1, tramites.Count, resultado.Existentes, resultado.PorInsertar,
+                resultado.Conflictos);
 
             return;
         }
 
         logger.LogInformation(
             """
-                Lote histórico procesado.
-                Leídos: {Leidos}.
-                Ya existentes: {Existentes}.
-                Insertados: {Insertados}.
+            Sincronización de los últimos {DiasConsultados} días terminada.
+            Leídos: {Leidos}.
+            Ya existentes: {Existentes}.
+            Insertados: {Insertados}.
+            Conflictos omitidos: {Conflictos}.
             """,
-            lote.Count, resultado.Existentes, resultado.Insertados);
-
-        var ultimoTramite = lote[^1];
-
-        estado.UltimoFolioSeguimientoHistorico = ultimoTramite.FolioSeguimiento;
-        estado.UltimoFolioControlEstadoHistorico = ultimoTramite.FolioControlEstado;
-
-        await estadoSincronizacionService.GuardarAsync(estado, cancellationToken);
+            diasAtrasConsulta + 1, tramites.Count, resultado.Existentes, resultado.Insertados,
+            resultado.Conflictos);
     }
 
-    private async Task ProcesarLoteContinuoAsync(
-      EstadoSincronizacionLocal estado, int tamanoLote, CancellationToken cancellationToken)
-    {
-        var folioActual =
-            await repositorioOrigenTramites.ObtenerFolioActualAsync(cancellationToken);
-
-        if (folioActual <= estado.UltimoFolioDescubierto) return;
-
-        var lote =
-            await repositorioOrigenTramites.ObtenerLotePorFolioControlEstadoAsync(
-                estado.UltimoFolioDescubierto, folioActual, tamanoLote, cancellationToken);
-
-        if (lote.Count == 0)
-        {
-            estado.UltimoFolioDescubierto = folioActual;
-
-            await estadoSincronizacionService.GuardarAsync(estado, cancellationToken);
-
-            return;
-        }
-
-        var resultado = await MigrarLoteAsync(lote, modoSimulacion: false, cancellationToken);
-
-        logger.LogInformation(
-            """
-                Lote continuo procesado.
-                Leídos: {Leidos}.
-                Ya existentes: {Existentes}.
-                Insertados: {Insertados}.
-            """,
-            lote.Count, resultado.Existentes, resultado.Insertados);
-
-        var ultimoFolioLeido = Convert.ToInt64(lote[^1].FolioControlEstado.Trim());
-
-        estado.UltimoFolioDescubierto = lote.Count < tamanoLote ? folioActual : ultimoFolioLeido;
-
-        await estadoSincronizacionService.GuardarAsync(estado, cancellationToken);
-    }
-
-    private async Task<ResultadoLote> MigrarLoteAsync(
-      List<TramiteGobMx> lote, bool modoSimulacion, CancellationToken cancellationToken)
+    private async Task<ResultadoMigracion> MigrarTramitesAsync(
+        List<TramiteGobMx> tramites, bool modoSimulacion, CancellationToken cancellationToken)
     {
         var existentes = 0;
         var insertados = 0;
         var porInsertar = 0;
+        var conflictos = 0;
 
-        foreach (var tramite in lote)
+        foreach (var tramite in tramites)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -162,22 +73,29 @@ public class SincronizadorTramitesService(
             if (folioControlEstadoDestino is not null)
             {
                 var esMismoFolio =
-                    string.Equals(tramite.FolioControlEstado, folioControlEstadoDestino.Trim(),
+                    String.Equals(
+                        tramite.FolioControlEstado,
+                        folioControlEstadoDestino.Trim(),
                         StringComparison.Ordinal);
-
                 if (!esMismoFolio)
                 {
-                    throw new InvalidOperationException(
-                        $"""
-                            Conflicto de folioSeguimiento detectado.
+                    conflictos++;
 
-                            Seguimiento: {tramite.FolioSeguimiento}.
-                            Control en origen: {tramite.FolioControlEstado}.
-                            Control en destino: {folioControlEstadoDestino.Trim()}.
+                    logger.LogWarning(
+                        """
+                            Conflicto de folioSeguimiento omitido.
+
+                            Seguimiento: {FolioSeguimiento}.
+                            Control en origen: {FolioControlEstadoOrigen}.
+                            Control en destino: {FolioControlEstadoDestino}.
 
                             El destino sólo permite un registro por folioSeguimiento.
-                            No se avanzó el estado local para este lote.
-                        """);
+                        """,
+                        tramite.FolioSeguimiento,
+                        tramite.FolioControlEstado,
+                        folioControlEstadoDestino.Trim());
+
+                    continue;
                 }
 
                 existentes++;
@@ -204,10 +122,10 @@ public class SincronizadorTramitesService(
                 logger.LogError(
                     exception,
                     """
-                        No se pudo migrar un trámite.
+                    No se pudo migrar un trámite.
 
-                        Seguimiento: {FolioSeguimiento}.
-                        Control: {FolioControlEstado}.
+                    Seguimiento: {FolioSeguimiento}.
+                    Control: {FolioControlEstado}.
                     """,
                     tramite.FolioSeguimiento, tramite.FolioControlEstado);
 
@@ -215,9 +133,9 @@ public class SincronizadorTramitesService(
             }
         }
 
-        return new ResultadoLote(existentes, insertados, porInsertar);
+        return new ResultadoMigracion(existentes, insertados, porInsertar, conflictos);
     }
 
-    private sealed record ResultadoLote(int Existentes, int Insertados, int PorInsertar);
-
+    private sealed record ResultadoMigracion(
+        int Existentes, int Insertados, int PorInsertar, int Conflictos);
 }
