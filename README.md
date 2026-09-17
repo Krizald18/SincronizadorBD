@@ -2,44 +2,48 @@
 
 Servicio de Windows desarrollado en .NET 8 para migrar trámites de GobMX.
 
-El servicio consulta `dbo.SFP_TRAMITES` en la base de origen y registra los trámites faltantes en destino mediante el procedimiento almacenado `dbo.GOBMX_GUARDAR_PAGOS`.
+Cada hora consulta los trámites creados durante los últimos días configurados en la base de datos origen e inserta en destino únicamente los que aún no existen.
 
 ## Funcionamiento
 
-El servicio realiza dos tareas:
+En cada ejecución, el servicio consulta `SFP_TRAMITES` en origen con esta ventana:
 
-1. Carga histórica: avanza gradualmente por los trámites existentes en origen, en lotes de hasta 1,000 registros.
-2. Detección continua: identifica nuevos folios de control y los migra en las ejecuciones posteriores.
+- Día actual.
+- Días configurados de calendario anteriores.
 
-No utiliza la columna `Fecha` como marcador de avance, ya que la fecha de los equipos puede no estar sincronizada. El avance histórico se controla mediante `folioSeguimiento` y `folioControlEstado`; la detección continua se apoya en `dbo.SFP_FOLIOS`.
+El periodo se calcula mediante la hora del servidor SQL de origen. Por ejemplo, un lunes se revisan los trámites de viernes, sábado, domingo y lunes si el valor por defecto de `DiasAtrasConsulta` se mantiene en 3.
 
-El estado local se guarda en:
+Este margen cubre interrupciones breves, como una falla eléctrica durante el viernes.
 
-```text
-C:\ProgramData\SincronizadorBD\estado-sincronizacion.json
-```
+Por cada trámite encontrado:
 
-Ese archivo permite que el servicio continúe desde el último trámite procesado después de reinicios o interrupciones.
+- Si no existe en destino, se inserta mediante el procedimiento `GOBMX_GUARDAR_PAGOS`.
+- Si existe con el mismo `folioSeguimiento` y `folioControlEstado`, se omite.
+- Si existe el mismo `folioSeguimiento` con un `folioControlEstado` distinto, se registra una advertencia y se omite; el servicio continúa con los demás trámites.
+
+La tabla de destino permite más de un registro por `folioSeguimiento`, por lo que se ejecuta ésta lógica previa a ejecutar `GOGMX_GUARDAR_PAGOS`.
 
 ## Datos migrados
 
-Por cada trámite faltante, el servicio asegura los registros requeridos en destino:
+La inserción se realiza mediante el procedimiento almacenado existente:
 
-- `dbo.SFP_TRAMITES`
-- `dbo.INT_PREELABORADOS_ENC`
-- `dbo.INT_PREELABORADOS_DET`
+```text
+GOBMX_GUARDAR_PAGOS
+```
 
-La migración contempla trámites pendientes y pagados. Los datos del pago pueden actualizarse posteriormente mediante los procesos existentes del sistema SII.
+El procedimiento mantiene los registros requeridos en destino:
 
-Si el nombre supera los 50 caracteres, el servicio utiliza una ruta especial para conservarlo completo en `SFP_TRAMITES`, sin exceder la limitación del procedimiento almacenado legado.
+- `SFP_TRAMITES`
+- `INT_PREELABORADOS_ENC`
+- `INT_PREELABORADOS_DET`
 
 ## Requisitos
 
 - Windows.
 - .NET Runtime 8 para Windows x64.
 - Acceso de red a las bases de datos de origen y destino.
-- Permisos en origen: `SELECT`.
-- Permisos en destino: `SELECT`, `INSERT` y `EXECUTE` sobre `dbo.GOBMX_GUARDAR_PAGOS`.
+- Permiso `SELECT` en origen.
+- Permisos `SELECT`, `INSERT` y `EXECUTE` sobre `GOBMX_GUARDAR_PAGOS` en destino.
 
 ## Configuración
 
@@ -67,14 +71,16 @@ La configuración base publicada contiene:
 ```json
 {
   "Sincronizacion": {
-    "IntervaloMinutos": 1,
-    "TamanoLote": 1000,
+    "IntervaloMinutos": 60,
+    "DiasAtrasConsulta": 3,
     "ModoSimulacion": true
   }
 }
 ```
 
-El archivo externo puede reemplazar cualquier valor de esta sección. Para habilitar inserciones reales, agregar explícitamente lo siguiente al archivo externo:
+`DiasAtrasConsulta` acepta cero o un valor positivo. El valor 0 consulta únicamente los trámites de hoy.
+
+El archivo externo puede reemplazar estos valores. Para permitir inserciones reales, agregar explícitamente:
 
 ```json
 {
@@ -84,23 +90,23 @@ El archivo externo puede reemplazar cualquier valor de esta sección. Para habil
 }
 ```
 
-Se recomienda conservar `ModoSimulacion` en `true` hasta contar con autorización para iniciar la migración real.
-
 Después de modificar la configuración externa se debe reiniciar el servicio.
 
-## Diagnóstico
+## Diagnóstico y simulación
 
-Para comprobar conexiones, permisos y lectura del estado local sin insertar información:
+Para comprobar conexiones, permisos y lectura de la ventana de cuatro días sin insertar información:
 
 ```powershell
 dotnet run -- --diagnostico
 ```
 
-Para simular un lote sin insertar datos ni guardar avance:
+Para simular la sincronización sin insertar datos:
 
 ```powershell
 dotnet run -- --simular-sincronizacion
 ```
+
+Se recomienda conservar `ModoSimulacion` en `true` hasta contar con autorización y un entorno confiable para la migración real.
 
 ## Publicación
 
@@ -146,6 +152,8 @@ Los registros se almacenan en:
 C:\ProgramData\SincronizadorBD\Logs
 ```
 
+Los conflictos de `folioSeguimiento` también se registran allí como advertencias.
+
 Para consultar las últimas líneas del log del día:
 
 ```powershell
@@ -156,6 +164,5 @@ Get-Content "$env:ProgramData\SincronizadorBD\Logs\Sincronizador-$(Get-Date -For
 
 - Las bases de datos no se modifican estructuralmente.
 - El servicio solo consulta origen e inserta o consulta en destino.
-- Un registro ya existente con el mismo `folioSeguimiento` se omite.
-- Si existe el mismo `folioSeguimiento` con un `folioControlEstado` distinto, el servicio detiene el avance para evitar asociar datos incorrectamente.
+- La misma ventana configurada se revisa en cada ejecución.
 - Antes de activar la migración real, ejecutar diagnóstico y simulación desde el servidor donde quedará instalado.
