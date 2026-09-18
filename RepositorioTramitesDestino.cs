@@ -5,13 +5,13 @@ using SincronizadorBD.Modelos;
 
 namespace SincronizadorBD;
 
-public class RepositorioDestinoTramites(
-    ConfiguracionConexiones configuracionConexiones, ILogger<RepositorioDestinoTramites> logger)
+public class RepositorioTramitesDestino(
+    ConfiguracionConexiones configuracionConexiones, ILogger<RepositorioTramitesDestino> logger)
 {
     public async Task<string?> ObtenerFolioControlEstadoAsync(
         string folioSeguimiento, CancellationToken cancellationToken)
     {
-        var connectionString = configuracionConexiones.ObtenerDestino();
+        var connectionString = configuracionConexiones.ObtenerCadenaDestino();
 
         const string sql = """
             SELECT TOP (1) folioControlEstado
@@ -28,9 +28,9 @@ public class RepositorioDestinoTramites(
         return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 
-    public async Task GuardarAsync(TramiteGobMx tramite, CancellationToken cancellationToken)
+    public async Task GuardarTramiteAsync(TramiteGobMx tramite, CancellationToken cancellationToken)
     {
-        var connectionString = configuracionConexiones.ObtenerDestino();
+        var connectionString = configuracionConexiones.ObtenerCadenaDestino();
 
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -65,6 +65,7 @@ public class RepositorioDestinoTramites(
     {
         await using var command =
             new SqlCommand("dbo.GOBMX_GUARDAR_PAGOS", connection, transaction);
+
         command.CommandType = CommandType.StoredProcedure;
 
         AgregarParametro(

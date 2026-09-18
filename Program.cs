@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Serilog;
 using SincronizadorBD;
@@ -6,15 +5,15 @@ using SincronizadorBD;
 var rutaBase = AppContext.BaseDirectory;
 var rutaDatosAplicacion =
     Path.Combine(
-        Environment.GetFolderPath(
-            Environment.SpecialFolder.CommonApplicationData), "SincronizadorBD");
-var rutaDirectorio = Path.Combine(rutaDatosAplicacion, "Logs");
-var rutaArchivo = Path.Combine(rutaDirectorio, "Sincronizador-.log");
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "SincronizadorBD");
+var rutaLogs = Path.Combine(rutaDatosAplicacion, "Logs");
+var rutaArchivoLogs = Path.Combine(rutaLogs, "Sincronizador-.log");
 
-Directory.CreateDirectory(rutaDirectorio);
+Directory.CreateDirectory(rutaLogs);
 
 Log.Logger = new LoggerConfiguration().MinimumLevel.Information().WriteTo.Console().WriteTo.File(
-    rutaArchivo,
+    rutaArchivoLogs,
     rollingInterval: RollingInterval.Day,
     retainedFileCountLimit: 30,
     shared: true,
@@ -25,7 +24,7 @@ try
 {
     Log.Information("Iniciando SincronizadorBD...");
     Log.Information($"Directorio base: {rutaBase}");
-    Log.Information($"Directorio de logs: {rutaDirectorio}");
+    Log.Information($"Directorio de logs: {rutaLogs}");
 
     var builder = Host.CreateApplicationBuilder(args);
 
@@ -57,13 +56,14 @@ try
             "Sincronizacion:DiasAtrasConsulta no puede ser negativo.")
         .ValidateOnStart();
     builder.Services.AddSingleton<ConfiguracionConexiones>();
-    builder.Services.AddSingleton<RepositorioDestinoTramites>();
-    builder.Services.AddSingleton<RepositorioOrigenTramites>();
+    builder.Services.AddSingleton<RepositorioTramitesOrigen>();
+    builder.Services.AddSingleton<RepositorioTramitesDestino>();
     builder.Services.AddSingleton<SincronizadorTramitesService>();
 
     // Ejecutar Diagnóstico
-    var modoDiagnostico = args.Any(argumento =>
-        string.Equals(argumento, "--diagnostico", StringComparison.OrdinalIgnoreCase));
+    var modoDiagnostico = 
+        args.Any(argumento =>
+            string.Equals(argumento, "--diagnostico", StringComparison.OrdinalIgnoreCase));
 
     if (modoDiagnostico)
     {
@@ -83,7 +83,7 @@ try
     var modoSimulacionManual =
         args.Any(argumento =>
             string.Equals(
-              argumento, "--simular-sincronizacion", StringComparison.OrdinalIgnoreCase));
+                argumento, "--simular-sincronizacion", StringComparison.OrdinalIgnoreCase));
 
     if (modoSimulacionManual)
     {

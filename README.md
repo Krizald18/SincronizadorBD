@@ -6,14 +6,14 @@ Cada hora consulta los trámites creados durante los últimos días configurados
 
 ## Funcionamiento
 
-En cada ejecución, el servicio consulta `SFP_TRAMITES` en origen con esta ventana:
+En cada ejecución, el servicio consulta `SFP_TRAMITES` en origen con este rango de fechas:
 
 - Día actual.
-- Días configurados de calendario anteriores.
+- Días anteriores configurados.
 
 El periodo se calcula mediante la hora del servidor SQL de origen. Por ejemplo, un lunes se revisan los trámites de viernes, sábado, domingo y lunes si el valor por defecto de `DiasAtrasConsulta` se mantiene en 3.
 
-Este margen cubre interrupciones breves, como una falla eléctrica durante el viernes.
+Este margen cubre interrupciones breves, como una falla eléctrica durante un viernes.
 
 Por cada trámite encontrado:
 
@@ -21,7 +21,7 @@ Por cada trámite encontrado:
 - Si existe con el mismo `folioSeguimiento` y `folioControlEstado`, se omite.
 - Si existe el mismo `folioSeguimiento` con un `folioControlEstado` distinto, se registra una advertencia y se omite; el servicio continúa con los demás trámites.
 
-La tabla de destino permite más de un registro por `folioSeguimiento`, por lo que se ejecuta ésta lógica previa a ejecutar `GOGMX_GUARDAR_PAGOS`.
+La tabla de destino no debe permitir más de un registro por `folioSeguimiento`, por lo que se ejecuta ésta lógica previa a ejecutar `GOGMX_GUARDAR_PAGOS`.
 
 ## Datos migrados
 
@@ -80,7 +80,7 @@ La configuración base publicada contiene:
 
 `DiasAtrasConsulta` acepta cero o un valor positivo. El valor 0 consulta únicamente los trámites de hoy.
 
-El archivo externo puede reemplazar estos valores. Para permitir inserciones reales, agregar explícitamente:
+El archivo creado manualmente puede reemplazar estos valores. Para permitir inserciones reales, agregar explícitamente:
 
 ```json
 {
@@ -90,11 +90,11 @@ El archivo externo puede reemplazar estos valores. Para permitir inserciones rea
 }
 ```
 
-Después de modificar la configuración externa se debe reiniciar el servicio.
+Después de modificar el archivo de configuración se debe reiniciar el servicio.
 
 ## Diagnóstico y simulación
 
-Para comprobar conexiones, permisos y lectura de la ventana de cuatro días sin insertar información:
+Para comprobar conexiones, permisos y lectura en el periodo de consulta configurado sin insertar información:
 
 ```powershell
 dotnet run -- --diagnostico
@@ -164,5 +164,5 @@ Get-Content "$env:ProgramData\SincronizadorBD\Logs\Sincronizador-$(Get-Date -For
 
 - Las bases de datos no se modifican estructuralmente.
 - El servicio solo consulta origen e inserta o consulta en destino.
-- La misma ventana configurada se revisa en cada ejecución.
+- El mismo periodo de consulta se revisa en cada ejecución.
 - Antes de activar la migración real, ejecutar diagnóstico y simulación desde el servidor donde quedará instalado.
