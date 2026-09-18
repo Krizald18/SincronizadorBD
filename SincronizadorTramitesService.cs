@@ -4,8 +4,8 @@ using SincronizadorBD.Modelos;
 namespace SincronizadorBD;
 
 public class SincronizadorTramitesService(
-    RepositorioOrigenTramites repositorioOrigenTramites,
-    RepositorioDestinoTramites repositorioDestinoTramites,
+    RepositorioTramitesOrigen repositorioTramitesOrigen,
+    RepositorioTramitesDestino repositorioTramitesDestino,
     IOptions<OpcionesSincronizacion> opcionesSincronizacion,
     ILogger<SincronizadorTramitesService> logger)
 {
@@ -16,14 +16,11 @@ public class SincronizadorTramitesService(
         var modoSimulacion = _opcionesSincronizacion.ModoSimulacion;
 
         if (modoSimulacion)
-        {
-            logger.LogWarning(
-              "Modo simulación activo: no se insertarán datos.");
-        }
+            logger.LogWarning("Modo simulación activo: no se insertarán datos.");
 
         var diasAtrasConsulta = _opcionesSincronizacion.DiasAtrasConsulta;
         var tramites =
-            await repositorioOrigenTramites.ObtenerTramites(diasAtrasConsulta, cancellationToken);
+            await repositorioTramitesOrigen.ObtenerTramites(diasAtrasConsulta, cancellationToken);
         var resultado = await MigrarTramitesAsync(tramites, modoSimulacion, cancellationToken);
 
         if (modoSimulacion)
@@ -67,20 +64,19 @@ public class SincronizadorTramitesService(
             cancellationToken.ThrowIfCancellationRequested();
 
             var folioControlEstadoDestino =
-                await repositorioDestinoTramites.ObtenerFolioControlEstadoAsync(
+                await repositorioTramitesDestino.ObtenerFolioControlEstadoAsync(
                     tramite.FolioSeguimiento, cancellationToken);
 
             if (folioControlEstadoDestino is not null)
             {
-                var esMismoFolio =
+                var esMismoFolioControlEstado =
                     String.Equals(
                         tramite.FolioControlEstado,
                         folioControlEstadoDestino.Trim(),
                         StringComparison.Ordinal);
-                if (!esMismoFolio)
-                {
-                    conflictos++;
 
+                if (!esMismoFolioControlEstado)
+                {
                     logger.LogWarning(
                         """
                             Conflicto de folioSeguimiento omitido.
@@ -89,15 +85,15 @@ public class SincronizadorTramitesService(
                             Control en origen: {FolioControlEstadoOrigen}.
                             Control en destino: {FolioControlEstadoDestino}.
 
-                            El destino sólo permite un registro por folioSeguimiento.
+                            El destino solo debe permitir un registro por folioSeguimiento.
                         """,
                         tramite.FolioSeguimiento,
                         tramite.FolioControlEstado,
                         folioControlEstadoDestino.Trim());
 
+                    conflictos++;
                     continue;
                 }
-
                 existentes++;
                 continue;
             }
@@ -110,7 +106,7 @@ public class SincronizadorTramitesService(
 
             try
             {
-                await repositorioDestinoTramites.GuardarAsync(tramite, cancellationToken);
+                await repositorioTramitesDestino.GuardarTramiteAsync(tramite, cancellationToken);
                 insertados++;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -132,7 +128,6 @@ public class SincronizadorTramitesService(
                 throw;
             }
         }
-
         return new ResultadoMigracion(existentes, insertados, porInsertar, conflictos);
     }
 

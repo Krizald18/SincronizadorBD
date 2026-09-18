@@ -7,13 +7,13 @@ public class DatabaseDiagnosticsService(
     IOptions<OpcionesSincronizacion> opcionesSincronizacion,
     ILogger<DatabaseDiagnosticsService> logger,
     ConfiguracionConexiones configuracionConexiones,
-    RepositorioOrigenTramites repositorioOrigen)
+    RepositorioTramitesOrigen repositorioTramitesOrigen)
 {
     public async Task ProbarOrigenAsync(CancellationToken cancellationToken)
     {
         var diasAtrasConsulta = opcionesSincronizacion.Value.DiasAtrasConsulta;
         var tramites =
-            await repositorioOrigen.ObtenerTramites(diasAtrasConsulta, cancellationToken);
+            await repositorioTramitesOrigen.ObtenerTramites(diasAtrasConsulta, cancellationToken);
 
         logger.LogInformation(
             """
@@ -25,7 +25,7 @@ public class DatabaseDiagnosticsService(
 
     public async Task ProbarDestinoAsync(CancellationToken cancellationToken)
     {
-        var connectionString = configuracionConexiones.ObtenerDestino();
+        var connectionString = configuracionConexiones.ObtenerCadenaDestino();
 
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -44,12 +44,12 @@ public class DatabaseDiagnosticsService(
             throw new InvalidOperationException(
                 "La cuenta configurada no tiene permiso INSERT en dbo.SFP_TRAMITES.");
 
-        const string sqlPermisoEjecutarProcedimiento = """
+        const string sqlPermisoProcedimiento = """
             SELECT ISNULL (HAS_PERMS_BY_NAME('dbo.GOBMX_GUARDAR_PAGOS', 'OBJECT', 'EXECUTE'), 0)
             """;
 
         await using var commandPermisoProcedimiento =
-            new SqlCommand(sqlPermisoEjecutarProcedimiento, connection);
+            new SqlCommand(sqlPermisoProcedimiento, connection);
 
         var puedeEjecutarProcedimiento =
             Convert.ToInt32(

@@ -4,13 +4,13 @@ using SincronizadorBD.Modelos;
 
 namespace SincronizadorBD;
 
-public class RepositorioOrigenTramites(
-    ConfiguracionConexiones configuracionConexiones, ILogger<RepositorioOrigenTramites> logger)
+public class RepositorioTramitesOrigen(
+    ConfiguracionConexiones configuracionConexiones, ILogger<RepositorioTramitesOrigen> logger)
 {
     public async Task<List<TramiteGobMx>> ObtenerTramites(
-        int diasAtrasConsulta,CancellationToken cancellationToken)
+        int diasAtrasConsulta, CancellationToken cancellationToken)
     {
-        var connectionString = configuracionConexiones.ObtenerOrigen();
+        var connectionString = configuracionConexiones.ObtenerCadenaOrigen();
 
         const string sql = """
             DECLARE @Inicio datetime;
